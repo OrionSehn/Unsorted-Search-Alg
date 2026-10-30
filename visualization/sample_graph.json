@@ -1,0 +1,412 @@
+{
+  "graph": {
+    "nodes": [
+      { "id": "A", "label": "A", "x":  0.00, "y":  0.90 },
+      { "id": "B", "label": "B", "x": -0.75, "y":  0.40 },
+      { "id": "C", "label": "C", "x": -0.25, "y":  0.40 },
+      { "id": "D", "label": "D", "x":  0.25, "y":  0.40 },
+      { "id": "E", "label": "E", "x":  0.75, "y":  0.40 },
+      { "id": "F", "label": "F", "x": -0.90, "y": -0.10 },
+      { "id": "G", "label": "G", "x": -0.30, "y": -0.10 },
+      { "id": "H", "label": "H", "x":  0.30, "y": -0.10 },
+      { "id": "I", "label": "I", "x":  0.90, "y": -0.10 },
+      { "id": "J", "label": "J", "x": -0.55, "y": -0.65 },
+      { "id": "K", "label": "K", "x":  0.10, "y": -0.65 },
+      { "id": "L", "label": "L", "x":  0.70, "y": -0.65 }
+    ],
+    "edges": [
+      { "source": "A", "target": "B", "weight": 2 },
+      { "source": "A", "target": "C", "weight": 4 },
+      { "source": "A", "target": "D", "weight": 6 },
+      { "source": "A", "target": "E", "weight": 8 },
+      { "source": "B", "target": "F", "weight": 3 },
+      { "source": "B", "target": "G", "weight": 5 },
+      { "source": "C", "target": "G", "weight": 1 },
+      { "source": "C", "target": "H", "weight": 4 },
+      { "source": "D", "target": "H", "weight": 2 },
+      { "source": "D", "target": "I", "weight": 3 },
+      { "source": "E", "target": "I", "weight": 1 },
+      { "source": "F", "target": "J", "weight": 4 },
+      { "source": "G", "target": "J", "weight": 2 },
+      { "source": "G", "target": "K", "weight": 5 },
+      { "source": "H", "target": "K", "weight": 3 },
+      { "source": "H", "target": "L", "weight": 6 },
+      { "source": "I", "target": "K", "weight": 2 },
+      { "source": "I", "target": "L", "weight": 4 },
+      { "source": "J", "target": "L", "weight": 3 },
+      { "source": "K", "target": "L", "weight": 1 }
+    ]
+  },
+  "frames": [
+    {
+      "description": "Initial: push source A (dist=0)",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "open",       "label_extra": "d=0" },
+          { "id": "B", "state": "unexplored", "label_extra": "" },
+          { "id": "C", "state": "unexplored", "label_extra": "" },
+          { "id": "D", "state": "unexplored", "label_extra": "" },
+          { "id": "E", "state": "unexplored", "label_extra": "" },
+          { "id": "F", "state": "unexplored", "label_extra": "" },
+          { "id": "G", "state": "unexplored", "label_extra": "" },
+          { "id": "H", "state": "unexplored", "label_extra": "" },
+          { "id": "I", "state": "unexplored", "label_extra": "" },
+          { "id": "J", "state": "unexplored", "label_extra": "" },
+          { "id": "K", "state": "unexplored", "label_extra": "" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "A", "priority": 0, "label": "A", "extra_lines": ["via: -"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop A (d=0) -> B=2, C=4, D=6, E=8",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "open",       "label_extra": "d=2" },
+          { "id": "C", "state": "open",       "label_extra": "d=4" },
+          { "id": "D", "state": "open",       "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "unexplored", "label_extra": "" },
+          { "id": "G", "state": "unexplored", "label_extra": "" },
+          { "id": "H", "state": "unexplored", "label_extra": "" },
+          { "id": "I", "state": "unexplored", "label_extra": "" },
+          { "id": "J", "state": "unexplored", "label_extra": "" },
+          { "id": "K", "state": "unexplored", "label_extra": "" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ],
+        "edges": [
+          { "source": "A", "target": "B", "highlight": true },
+          { "source": "A", "target": "C", "highlight": true },
+          { "source": "A", "target": "D", "highlight": true },
+          { "source": "A", "target": "E", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "B", "priority": 2, "label": "B", "extra_lines": ["via: A"] },
+          { "id": "C", "priority": 4, "label": "C", "extra_lines": ["via: A"] },
+          { "id": "D", "priority": 6, "label": "D", "extra_lines": ["via: A"] },
+          { "id": "E", "priority": 8, "label": "E", "extra_lines": ["via: A"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop B (d=2) -> F=5, G=7",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "closed",     "label_extra": "d=2" },
+          { "id": "C", "state": "open",       "label_extra": "d=4" },
+          { "id": "D", "state": "open",       "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "open",       "label_extra": "d=5" },
+          { "id": "G", "state": "open",       "label_extra": "d=7" },
+          { "id": "H", "state": "unexplored", "label_extra": "" },
+          { "id": "I", "state": "unexplored", "label_extra": "" },
+          { "id": "J", "state": "unexplored", "label_extra": "" },
+          { "id": "K", "state": "unexplored", "label_extra": "" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ],
+        "edges": [
+          { "source": "B", "target": "F", "highlight": true },
+          { "source": "B", "target": "G", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "C", "priority": 4, "label": "C", "extra_lines": ["via: A"] },
+          { "id": "F", "priority": 5, "label": "F", "extra_lines": ["via: B"] },
+          { "id": "D", "priority": 6, "label": "D", "extra_lines": ["via: A"] },
+          { "id": "E", "priority": 8, "label": "E", "extra_lines": ["via: A"] },
+          { "id": "G", "priority": 7, "label": "G", "extra_lines": ["via: B"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop C (d=4) -> G=5 (improved!), H=8",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "closed",     "label_extra": "d=2" },
+          { "id": "C", "state": "closed",     "label_extra": "d=4" },
+          { "id": "D", "state": "open",       "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "open",       "label_extra": "d=5" },
+          { "id": "G", "state": "open",       "label_extra": "d=5" },
+          { "id": "H", "state": "open",       "label_extra": "d=8" },
+          { "id": "I", "state": "unexplored", "label_extra": "" },
+          { "id": "J", "state": "unexplored", "label_extra": "" },
+          { "id": "K", "state": "unexplored", "label_extra": "" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ],
+        "edges": [
+          { "source": "C", "target": "G", "highlight": true },
+          { "source": "C", "target": "H", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "F", "priority": 5, "label": "F", "extra_lines": ["via: B"] },
+          { "id": "G", "priority": 5, "label": "G", "extra_lines": ["via: C"], "highlight": true },
+          { "id": "D", "priority": 6, "label": "D", "extra_lines": ["via: A"] },
+          { "id": "E", "priority": 8, "label": "E", "extra_lines": ["via: A"] },
+          { "id": "H", "priority": 8, "label": "H", "extra_lines": ["via: C"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop F (d=5) -> J=9",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "closed",     "label_extra": "d=2" },
+          { "id": "C", "state": "closed",     "label_extra": "d=4" },
+          { "id": "D", "state": "open",       "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "closed",     "label_extra": "d=5" },
+          { "id": "G", "state": "open",       "label_extra": "d=5" },
+          { "id": "H", "state": "open",       "label_extra": "d=8" },
+          { "id": "I", "state": "unexplored", "label_extra": "" },
+          { "id": "J", "state": "open",       "label_extra": "d=9" },
+          { "id": "K", "state": "unexplored", "label_extra": "" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ],
+        "edges": [
+          { "source": "F", "target": "J", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "G", "priority": 5, "label": "G", "extra_lines": ["via: C"] },
+          { "id": "D", "priority": 6, "label": "D", "extra_lines": ["via: A"] },
+          { "id": "E", "priority": 8, "label": "E", "extra_lines": ["via: A"] },
+          { "id": "H", "priority": 8, "label": "H", "extra_lines": ["via: C"] },
+          { "id": "J", "priority": 9, "label": "J", "extra_lines": ["via: F"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop G (d=5) -> J=7 (improved!), K=10",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "closed",     "label_extra": "d=2" },
+          { "id": "C", "state": "closed",     "label_extra": "d=4" },
+          { "id": "D", "state": "open",       "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "closed",     "label_extra": "d=5" },
+          { "id": "G", "state": "closed",     "label_extra": "d=5" },
+          { "id": "H", "state": "open",       "label_extra": "d=8" },
+          { "id": "I", "state": "unexplored", "label_extra": "" },
+          { "id": "J", "state": "open",       "label_extra": "d=7" },
+          { "id": "K", "state": "open",       "label_extra": "d=10" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ],
+        "edges": [
+          { "source": "G", "target": "J", "highlight": true },
+          { "source": "G", "target": "K", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "D",  "priority": 6,  "label": "D",  "extra_lines": ["via: A"] },
+          { "id": "J",  "priority": 7,  "label": "J",  "extra_lines": ["via: G"], "highlight": true },
+          { "id": "E",  "priority": 8,  "label": "E",  "extra_lines": ["via: A"] },
+          { "id": "H",  "priority": 8,  "label": "H",  "extra_lines": ["via: C"] },
+          { "id": "K",  "priority": 10, "label": "K",  "extra_lines": ["via: G"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop D (d=6) -> I=9 (H unchanged at 8)",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "closed",     "label_extra": "d=2" },
+          { "id": "C", "state": "closed",     "label_extra": "d=4" },
+          { "id": "D", "state": "closed",     "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "closed",     "label_extra": "d=5" },
+          { "id": "G", "state": "closed",     "label_extra": "d=5" },
+          { "id": "H", "state": "open",       "label_extra": "d=8" },
+          { "id": "I", "state": "open",       "label_extra": "d=9" },
+          { "id": "J", "state": "open",       "label_extra": "d=7" },
+          { "id": "K", "state": "open",       "label_extra": "d=10" },
+          { "id": "L", "state": "unexplored", "label_extra": "" }
+        ],
+        "edges": [
+          { "source": "D", "target": "I", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "J", "priority": 7,  "label": "J", "extra_lines": ["via: G"] },
+          { "id": "E", "priority": 8,  "label": "E", "extra_lines": ["via: A"] },
+          { "id": "H", "priority": 8,  "label": "H", "extra_lines": ["via: C"] },
+          { "id": "K", "priority": 10, "label": "K", "extra_lines": ["via: G"] },
+          { "id": "I", "priority": 9,  "label": "I", "extra_lines": ["via: D"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop J (d=7) -> L=10",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed",     "label_extra": "d=0" },
+          { "id": "B", "state": "closed",     "label_extra": "d=2" },
+          { "id": "C", "state": "closed",     "label_extra": "d=4" },
+          { "id": "D", "state": "closed",     "label_extra": "d=6" },
+          { "id": "E", "state": "open",       "label_extra": "d=8" },
+          { "id": "F", "state": "closed",     "label_extra": "d=5" },
+          { "id": "G", "state": "closed",     "label_extra": "d=5" },
+          { "id": "H", "state": "open",       "label_extra": "d=8" },
+          { "id": "I", "state": "open",       "label_extra": "d=9" },
+          { "id": "J", "state": "closed",     "label_extra": "d=7" },
+          { "id": "K", "state": "open",       "label_extra": "d=10" },
+          { "id": "L", "state": "open",       "label_extra": "d=10" }
+        ],
+        "edges": [
+          { "source": "J", "target": "L", "highlight": true }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "E", "priority": 8,  "label": "E", "extra_lines": ["via: A"] },
+          { "id": "H", "priority": 8,  "label": "H", "extra_lines": ["via: C"] },
+          { "id": "K", "priority": 10, "label": "K", "extra_lines": ["via: G"] },
+          { "id": "I", "priority": 9,  "label": "I", "extra_lines": ["via: D"] },
+          { "id": "L", "priority": 10, "label": "L", "extra_lines": ["via: J"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop E (d=8) -> I already 9, no improvement",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed", "label_extra": "d=0" },
+          { "id": "B", "state": "closed", "label_extra": "d=2" },
+          { "id": "C", "state": "closed", "label_extra": "d=4" },
+          { "id": "D", "state": "closed", "label_extra": "d=6" },
+          { "id": "E", "state": "closed", "label_extra": "d=8" },
+          { "id": "F", "state": "closed", "label_extra": "d=5" },
+          { "id": "G", "state": "closed", "label_extra": "d=5" },
+          { "id": "H", "state": "open",   "label_extra": "d=8" },
+          { "id": "I", "state": "open",   "label_extra": "d=9" },
+          { "id": "J", "state": "closed", "label_extra": "d=7" },
+          { "id": "K", "state": "open",   "label_extra": "d=10" },
+          { "id": "L", "state": "open",   "label_extra": "d=10" }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "H", "priority": 8,  "label": "H", "extra_lines": ["via: C"] },
+          { "id": "I", "priority": 9,  "label": "I", "extra_lines": ["via: D"] },
+          { "id": "K", "priority": 10, "label": "K", "extra_lines": ["via: G"] },
+          { "id": "L", "priority": 10, "label": "L", "extra_lines": ["via: J"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop H (d=8) -> K=11, L=14 - no improvements",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed", "label_extra": "d=0" },
+          { "id": "B", "state": "closed", "label_extra": "d=2" },
+          { "id": "C", "state": "closed", "label_extra": "d=4" },
+          { "id": "D", "state": "closed", "label_extra": "d=6" },
+          { "id": "E", "state": "closed", "label_extra": "d=8" },
+          { "id": "F", "state": "closed", "label_extra": "d=5" },
+          { "id": "G", "state": "closed", "label_extra": "d=5" },
+          { "id": "H", "state": "closed", "label_extra": "d=8" },
+          { "id": "I", "state": "open",   "label_extra": "d=9" },
+          { "id": "J", "state": "closed", "label_extra": "d=7" },
+          { "id": "K", "state": "open",   "label_extra": "d=10" },
+          { "id": "L", "state": "open",   "label_extra": "d=10" }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "I", "priority": 9,  "label": "I", "extra_lines": ["via: D"] },
+          { "id": "K", "priority": 10, "label": "K", "extra_lines": ["via: G"] },
+          { "id": "L", "priority": 10, "label": "L", "extra_lines": ["via: J"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop I (d=9) -> K=11, L=13 - no improvements",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed", "label_extra": "d=0" },
+          { "id": "B", "state": "closed", "label_extra": "d=2" },
+          { "id": "C", "state": "closed", "label_extra": "d=4" },
+          { "id": "D", "state": "closed", "label_extra": "d=6" },
+          { "id": "E", "state": "closed", "label_extra": "d=8" },
+          { "id": "F", "state": "closed", "label_extra": "d=5" },
+          { "id": "G", "state": "closed", "label_extra": "d=5" },
+          { "id": "H", "state": "closed", "label_extra": "d=8" },
+          { "id": "I", "state": "closed", "label_extra": "d=9" },
+          { "id": "J", "state": "closed", "label_extra": "d=7" },
+          { "id": "K", "state": "open",   "label_extra": "d=10" },
+          { "id": "L", "state": "open",   "label_extra": "d=10" }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "K", "priority": 10, "label": "K", "extra_lines": ["via: G"] },
+          { "id": "L", "priority": 10, "label": "L", "extra_lines": ["via: J"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop K (d=10) -> L=11, no improvement",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed", "label_extra": "d=0" },
+          { "id": "B", "state": "closed", "label_extra": "d=2" },
+          { "id": "C", "state": "closed", "label_extra": "d=4" },
+          { "id": "D", "state": "closed", "label_extra": "d=6" },
+          { "id": "E", "state": "closed", "label_extra": "d=8" },
+          { "id": "F", "state": "closed", "label_extra": "d=5" },
+          { "id": "G", "state": "closed", "label_extra": "d=5" },
+          { "id": "H", "state": "closed", "label_extra": "d=8" },
+          { "id": "I", "state": "closed", "label_extra": "d=9" },
+          { "id": "J", "state": "closed", "label_extra": "d=7" },
+          { "id": "K", "state": "closed", "label_extra": "d=10" },
+          { "id": "L", "state": "open",   "label_extra": "d=10" }
+        ]
+      },
+      "heap_state": {
+        "nodes": [
+          { "id": "L", "priority": 10, "label": "L", "extra_lines": ["via: J"] }
+        ]
+      }
+    },
+    {
+      "description": "Pop L (d=10) - all nodes settled, done!",
+      "graph_state": {
+        "nodes": [
+          { "id": "A", "state": "closed", "label_extra": "d=0" },
+          { "id": "B", "state": "closed", "label_extra": "d=2" },
+          { "id": "C", "state": "closed", "label_extra": "d=4" },
+          { "id": "D", "state": "closed", "label_extra": "d=6" },
+          { "id": "E", "state": "closed", "label_extra": "d=8" },
+          { "id": "F", "state": "closed", "label_extra": "d=5" },
+          { "id": "G", "state": "closed", "label_extra": "d=5" },
+          { "id": "H", "state": "closed", "label_extra": "d=8" },
+          { "id": "I", "state": "closed", "label_extra": "d=9" },
+          { "id": "J", "state": "closed", "label_extra": "d=7" },
+          { "id": "K", "state": "closed", "label_extra": "d=10" },
+          { "id": "L", "state": "closed", "label_extra": "d=10" }
+        ]
+      },
+      "heap_state": {
+        "nodes": []
+      }
+    }
+  ]
+}
