@@ -1,7 +1,6 @@
 
 
 from uuid import uuid4
-from statistics import median
 
 import networkx as nx
 
@@ -12,6 +11,12 @@ from red_black_tree import RedBlackTree
 M_LIMIT = 5
 
 # create a tree of blocks
+#
+# Items stored in the structure must be DISTINCT. Blocks rely on covering
+# disjoint value ranges (no two blocks share a bound), which duplicates break.
+# To store values that may repeat (e.g. equal distances), insert tuples with a
+# unique tiebreaker, e.g. (distance, vertex_id). Tuples compare element-wise,
+# so the rest of the code works unchanged.
 
 class Block:
     def __init__(self, items = [], ID = uuid4()):
@@ -29,18 +34,13 @@ class Block:
             return None
 
     def split_block(self):
-        # makes a smaller block with the items in the first block less than the median
-        med = median(self.items)
-        lt_med = []
-        gte_med = []
-        for i, item in enumerate(self.items):
-            if item < med:
-                lt_med.append(item)
-            else:
-                gte_med.append(item)
-        self.items = gte_med
-        new_block = Block(items=lt_med)
-        return new_block 
+        # Splits around the median in O(n): the smaller half moves to a new block,
+        # the larger half stays here (so this block's bound, the max, is unchanged).
+        # Because items are distinct, every item in the new block is strictly less
+        # than every item kept here, and both halves are non-empty.
+        lower, upper = pull_n_smallest(self.items, len(self.items) // 2)
+        self.items = upper
+        return Block(items=lower)
 
     def __repr__(self):
         header = f"\n{'*'* 15} Block {'*'* 15}\n"
@@ -59,31 +59,32 @@ class BlockHeap:
         self.prepend_array = []
 
     def pull(self):
-        if self.prepend_array:
-            if len(self.prepend_array) >= M_LIMIT:
-                # return M items from the prepend_array
-                result = self.prepend_array[:M_LIMIT]
-                self.prepend_array = self.prepend_array[M_LIMIT:]
-                return result
-            else: # must fetch from the block heap in order to get M elements
-                result = self.prepend_array[:]
-                self.prepend_array = []
-                # find the smallest elements in the top of the block heap
+        if len(self.prepend_array) >= M_LIMIT:
+            # return M items from the prepend_array
+            result = self.prepend_array[:M_LIMIT]
+            self.prepend_array = self.prepend_array[M_LIMIT:]
+            return result
+        else: # must fetch from the block heap in order to get M elements
+            result = self.prepend_array[:]
+            self.prepend_array = []
+            # find the smallest elements in the top of the block heap
+            number_of_elements_to_pull = M_LIMIT - len(result)
+            while number_of_elements_to_pull > 0:
+                top_block = self.pop()
+                if top_block is None:
+                    break
+
+                # pull smallest items from the top block
+                if number_of_elements_to_pull < len(top_block.items):
+                    smallest_items, remaining_items = pull_n_smallest(top_block.items, number_of_elements_to_pull)
+                    result.extend(smallest_items)
+                    self.prepend_array.extend(remaining_items)
+                else:
+                    result.extend(top_block.items)
+
                 number_of_elements_to_pull = M_LIMIT - len(result)
-                while number_of_elements_to_pull > 0:
-                    top_block = self.pop()
-                    if top_block is None:
-                        break
 
-                    # pull smallest items from the top block
-                    if number_of_elements_to_pull < len(top_block.items):
-                        smallest_items, remaining_items = pull_n_smallest(top_block.items, number_of_elements_to_pull)
-                        top_block.items = remaining_items
-                        result.extend(smallest_items)
-
-                    number_of_elements_to_pull = M_LIMIT - len(result)
-
-                return result
+            return result
 
 
     def _push_block(self, block):
@@ -97,14 +98,23 @@ class BlockHeap:
     def pop(self):
         if not self.blocks:
             return None
-        self.num_blocks -= 1
         top_block = self.blocks[0]
-        self.blocks[0] = self.blocks[-1]
-        self.blocks.pop()
-        self._sift_down(0)
+        last = self.num_blocks - 1
 
-        # remove the block from the binary search tree
+        # remove the top block's entry (key 0) from the binary search tree
         self.bin_search_tree.delete(0, top_block.bound)
+
+        if last > 0:
+            # move the last block to the root, and re-key its tree entry from `last` to 0
+            moved_block = self.blocks[last]
+            self.bin_search_tree.delete(last, moved_block.bound)
+            self.blocks[0] = moved_block
+            self.bin_search_tree.insert(0, moved_block.bound)
+
+        self.blocks.pop()
+        self.num_blocks -= 1
+        # tree is in sync with the heap here; _sift_down keeps it in sync on each swap
+        self._sift_down(0)
 
         return top_block
 
@@ -113,15 +123,16 @@ class BlockHeap:
 
     def insert(self, value):
         # find appropriate block to insert the value, where the block's bound is less than or equal to the value
-        relevant_index = self.bin_search_tree.find_bound(value).key
-        # if no relevant block is found, create a new block with that bound
-        if relevant_index is None:
+        bound_node = self.bin_search_tree.find_bound(value)
+        # if no block has a bound >= value, create a new block with that bound
+        # (_push_block adds it to both the heap and the binary search tree)
+        if bound_node is None:
             new_block = Block(items=[value])
             self._push_block(new_block)
             return
 
         # check if block is not too big > M_LIMIT, if so split it
-        relevant_block = self.blocks[relevant_index]
+        relevant_block = self.blocks[bound_node.key]
         new_block = relevant_block.add_item(value) # if the block was split, this will be the new block
         if new_block is not None:
             self._push_block(new_block)
@@ -195,16 +206,17 @@ def test_block_heap_size_2():
 
 def test_block_heap_split_1():
     bh = BlockHeap()
-    b1 = Block(items=[1, 2, 3, 4, 5])
-    b2 = Block(items=[6, 7, 8, 9, 10])
+    b1 = Block(items=[1, 2, 4, 5, 6])
+    b2 = Block(items=[7, 8, 9, 10, 11])
     bh._push_block(b1)
     bh._push_block(b2)
 
-    bh.insert(3)
+    bh.insert(3)  # b1 now has 6 items -> splits into its 3 smallest and 3 largest
 
-    # print(bh)
-    assert bh.pop().items == [1, 2]
-    assert bh.pop().items == [3, 4, 5, 3]
+    assert sorted(bh.pop().items) == [1, 2, 3]
+    assert sorted(bh.pop().items) == [4, 5, 6]
+    assert sorted(bh.pop().items) == [7, 8, 9, 10, 11]
+    assert bh.pop() is None
 
 
 def test_block_heap_pull_with_prepend_array():
@@ -214,11 +226,118 @@ def test_block_heap_pull_with_prepend_array():
     bh._push_block(b1)
     bh._push_block(b2)
 
-    bh.insert(0)
-    bh.insert(7)
+    bh.insert(0)  # fits under b1's bound (3)
+    bh.insert(7)  # larger than every bound -> goes into a new block
 
-    assert bh.pop().items == [0, 1, 2, 3]
-    assert bh.pop().items == [4, 5, 6, 7]
+    assert sorted(bh.pop().items) == [0, 1, 2, 3]
+    assert bh.pop().items == [4, 5, 6]
+    assert bh.pop().items == [7]
+    assert bh.pop() is None
+
+
+# ---------------------------------------------------------------------------
+# pull() tests
+# pull() should return the M_LIMIT smallest items currently stored (in any
+# order), remove them from the structure, and never lose or duplicate items.
+# ---------------------------------------------------------------------------
+
+def _heap_from_blocks(*item_lists):
+    bh = BlockHeap()
+    for items in item_lists:
+        bh._push_block(Block(items=list(items)))
+    return bh
+
+
+def test_pull_empty_heap():
+    bh = BlockHeap()
+    assert bh.pull() == []
+
+
+def test_pull_from_prepend_array_only():
+    bh = BlockHeap()
+    bh.prepend_array = [1, 2, 3, 4, 5, 6, 7]
+    assert sorted(bh.pull()) == [1, 2, 3, 4, 5]
+    assert sorted(bh.prepend_array) == [6, 7]
+    assert sorted(bh.pull()) == [6, 7]
+    assert bh.pull() == []
+
+
+def test_pull_single_full_block():
+    # a block with exactly M_LIMIT items should be returned whole
+    bh = _heap_from_blocks([5, 3, 1, 4, 2])
+    assert sorted(bh.pull()) == [1, 2, 3, 4, 5]
+    assert bh.pull() == []
+
+
+def test_pull_fewer_than_m_items_total():
+    bh = _heap_from_blocks([2, 1], [3])
+    assert sorted(bh.pull()) == [1, 2, 3]
+    assert bh.pull() == []
+
+
+def test_pull_takes_whole_block_then_part_of_next():
+    # needs all of [1, 2, 3] plus the 2 smallest of [4, 5, 6]
+    bh = _heap_from_blocks([1, 2, 3], [4, 5, 6])
+    assert sorted(bh.pull()) == [1, 2, 3, 4, 5]
+    assert sorted(bh.pull()) == [6]
+    assert bh.pull() == []
+
+
+def test_pull_leftovers_go_to_prepend_array():
+    # takes [1, 2], then the 3 smallest of [6, 3, 5, 4]; 6 must be kept
+    bh = _heap_from_blocks([2, 1], [6, 3, 5, 4])
+    assert sorted(bh.pull()) == [1, 2, 3, 4, 5]
+    assert sorted(bh.prepend_array) == [6]
+    assert sorted(bh.pull()) == [6]
+    assert bh.pull() == []
+
+
+def test_pull_combines_prepend_array_and_blocks():
+    bh = _heap_from_blocks([4, 5, 6])
+    bh.prepend_array = [1, 2]
+    assert sorted(bh.pull()) == [1, 2, 4, 5, 6]
+    assert bh.pull() == []
+
+
+def test_pull_after_insert_smaller_than_prepend_array():
+    # after the first pull, [11, 12] sit in the prepend array; inserting 5
+    # afterwards means 5 is now among the smallest and must come out next
+    bh = _heap_from_blocks([1, 2, 3, 4], [10, 11, 12])
+    assert sorted(bh.pull()) == [1, 2, 3, 4, 10]
+    bh.insert(5)
+    assert sorted(bh.pull()) == [5, 11, 12]
+    assert bh.pull() == []
+
+
+def test_block_split_with_duplicates():
+    # equal distances are made distinct with a tiebreaker: (distance, id).
+    # splitting must never produce an empty block or one over M_LIMIT, and
+    # the two halves must not overlap.
+    b = Block(items=[(3, i) for i in range(5)])
+    new_block = b.add_item((3, 5))
+    assert new_block is not None
+    assert len(new_block.items) > 0 and len(b.items) > 0
+    assert len(new_block.items) <= M_LIMIT and len(b.items) <= M_LIMIT
+    assert max(new_block.items) < min(b.items)
+    assert sorted(new_block.items + b.items) == [(3, i) for i in range(6)]
+
+
+def test_pull_drains_inserted_values_in_order():
+    import random
+    rng = random.Random(0)
+    for _ in range(1000):
+        # small value range -> lots of repeated distances; the index makes each item unique
+        values = [(rng.randint(0, 10), i) for i in range(rng.randint(0, 40))]
+        bh = BlockHeap()
+        for v in values:
+            bh.insert(v)
+
+        expected = sorted(values)
+        while expected:
+            batch = bh.pull()
+            assert sorted(batch) == expected[:M_LIMIT], (values, batch, expected[:M_LIMIT])
+            expected = expected[M_LIMIT:]
+        assert bh.pull() == []
 
 
 
@@ -326,6 +445,20 @@ if __name__ == "__main__":
 
     # Test with prepend array
     test_block_heap_pull_with_prepend_array()
+
+    # pull()
+    test_pull_empty_heap()
+    test_pull_from_prepend_array_only()
+    test_pull_single_full_block()
+    test_pull_fewer_than_m_items_total()
+    test_pull_takes_whole_block_then_part_of_next()
+    test_pull_leftovers_go_to_prepend_array()
+    test_pull_combines_prepend_array_and_blocks()
+    test_pull_after_insert_smaller_than_prepend_array()
+    test_block_split_with_duplicates()
+    test_pull_drains_inserted_values_in_order()
+
+    print("All tests passed")
 
 
 
