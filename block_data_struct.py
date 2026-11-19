@@ -139,6 +139,21 @@ class BlockHeap:
             candidates.append(min(self.b_block.items))
         return min(candidates) if candidates else self.bound
 
+    def snapshot(self):
+        '''
+        A plain copy of the current contents, for visualization. Doesn't change
+        anything. Blocks are (id, bound, items); heap blocks are in heap-array
+        order (index 0 is the root, children of i are 2i+1 and 2i+2), and
+        prepend blocks are front (smallest) first.
+        '''
+        return {
+            'm_limit': self.m_limit,
+            'bound': self.bound,
+            'heap_blocks': [(str(block.ID), block.bound, list(block.items)) for block in self.blocks],
+            'b_block': (str(self.b_block.ID), self.b_block.bound, list(self.b_block.items)),
+            'prepend_blocks': [list(block) for block in self.prepend_blocks],
+        }
+
     def is_empty(self):
         '''
         True if the structure holds no values. O(1).
@@ -855,6 +870,41 @@ def test_is_empty_matches_contents_in_random_use():
 
 
 # ---------------------------------------------------------------------------
+# snapshot (used by the visualization)
+# ---------------------------------------------------------------------------
+
+def test_snapshot_shows_all_three_parts():
+    bh = BlockHeap(3, TEST_BOUND)
+    for v in (9, 8, 7, 1):       # 4 items in the B block -> splits: [1, 7] to the heap
+        bh.insert(v)
+    bh.batch_prepend([0])
+    snap = bh.snapshot()
+    assert snap['m_limit'] == 3 and snap['bound'] == TEST_BOUND
+    assert [sorted(items) for _, _, items in snap['heap_blocks']] == [[1, 7]]
+    b_id, b_bound, b_items = snap['b_block']
+    assert b_bound == TEST_BOUND and sorted(b_items) == [8, 9]
+    assert snap['prepend_blocks'] == [[0]]
+
+
+def test_snapshot_is_a_copy():
+    bh = BlockHeap(TEST_M_LIMIT, TEST_BOUND)
+    bh.insert(5)
+    snap = bh.snapshot()
+    snap['b_block'][2].append(99)          # changing the snapshot...
+    assert bh.b_block.items == [5]         # ...doesn't change the structure
+
+
+def test_snapshot_heap_blocks_in_heap_order():
+    bh = _heap_from_blocks([7, 8], [1, 2], [4, 5])
+    bounds = [bound for _, bound, _ in bh.snapshot()['heap_blocks']]
+    assert bounds[0] == min(bounds)        # root has the smallest bound
+    for i, bound in enumerate(bounds):
+        for child in (2 * i + 1, 2 * i + 2):
+            if child < len(bounds):
+                assert bound <= bounds[child]
+
+
+# ---------------------------------------------------------------------------
 # m_limit parameter
 # ---------------------------------------------------------------------------
 
@@ -1018,6 +1068,9 @@ if __name__ == "__main__":
     test_is_empty_false_with_value_in_each_part()
     test_is_empty_after_pulling_everything()
     test_is_empty_matches_contents_in_random_use()
+    test_snapshot_shows_all_three_parts()
+    test_snapshot_is_a_copy()
+    test_snapshot_heap_blocks_in_heap_order()
     test_m_limit_controls_pull_size()
     test_heaps_with_different_limits_are_independent()
     test_m_limit_must_be_positive()

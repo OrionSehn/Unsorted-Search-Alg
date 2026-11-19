@@ -7,6 +7,8 @@ import networkx as nx
 
 from block_data_struct import BlockHeap, Block
 
+from bmssp_recorder import BMSSPRecorder, format_bound, format_nodes
+
 
 
 class bmssp_workspace:
@@ -27,6 +29,8 @@ class bmssp_workspace:
         self.predecessors = dict()
         # number of edges on each node's current best path (for tie-breaking)
         self.hops = {source: 0}
+        # optional BMSSPRecorder (see bmssp_recorder.py); None = no visualization
+        self.recorder = None
 
     # ------------------------------------------------------------------
     # Tie-breaking (Assumption 2.1 in Duan et al.)
@@ -66,6 +70,8 @@ class bmssp_workspace:
         self.g_cost[v] = new_cost
         self.hops[v] = self.hops.get(u, 0) + 1
         self.predecessors[v] = u
+        if self.recorder:
+            self.recorder.on_relax(u, v)
 
 
 def as_bound(bound_B):
@@ -88,6 +94,8 @@ def bmssp(level_l, bound_B, closed_S, bmssp_ws: bmssp_workspace):
 
     ws = bmssp_ws
     bound = as_bound(bound_B)
+    if ws.recorder:
+        ws.recorder.enter_call(level_l, bound_B, closed_S)
 
     # line 8: find the pivot nodes P and the encountered nodes W
     pivot_set_P, encountered_nodes_W = find_pivots(bound_B, closed_S, ws)
@@ -97,12 +105,19 @@ def bmssp(level_l, bound_B, closed_S, bmssp_ws: bmssp_workspace):
         m_limit=2 ** ((level_l - 1) * ws.t),
         bound_B=bound,
     )
-    # the key last inserted into D for each node; guards against inserting the
-    # same key twice, which the block heap does not allow (it needs distinct values)
-    last_inserted_key = {}
+    # node -> the key D currently holds for it (added by Insert or BatchPrepend,
+    # forgotten once pulled out). A node can be relaxed to a different path with
+    # the same (cost, hops, node) key (equal cost and hops, smaller predecessor);
+    # adding that key again would put a duplicate in D, which the block heap
+    # does not allow. The paper's Insert just keeps the existing entry then.
+    key_in_D = {}
     for node in pivot_set_P:
         block_data_struct_D.insert(ws.key(node))
-        last_inserted_key[node] = ws.key(node)
+        key_in_D[node] = ws.key(node)
+    if ws.recorder:
+        ws.recorder.attach_structure(block_data_struct_D)
+        ws.recorder.frame(f"FindPivots: P = {format_nodes(pivot_set_P)}, |W| = {len(encountered_nodes_W)}; "
+                          f"insert P into D", active=pivot_set_P)
 
     # line 11: B'_0 = smallest pivot key, or B if there are no pivots
     last_bound_B_prime = min((ws.key(node) for node in pivot_set_P), default=bound)
@@ -116,7 +131,13 @@ def bmssp(level_l, bound_B, closed_S, bmssp_ws: bmssp_workspace):
         # was inserted (the paper's Insert replaces it; the block heap does not), so
         # keep only keys that are still the node's current key
         bound_B_i, pulled_keys = block_data_struct_D.pull()
+        for key in pulled_keys:
+            if key_in_D.get(key[2]) == key:
+                del key_in_D[key[2]]
         pulled_nodes_S_i = {key[2] for key in pulled_keys if key == ws.key(key[2])}
+        if ws.recorder:
+            ws.recorder.frame(f"Pull: S_i = {format_nodes(pulled_nodes_S_i)}, B_i = {format_bound(bound_B_i)}",
+                              active=pulled_nodes_S_i)
 
         # line 15-16: recurse on the pulled nodes
         if pulled_nodes_S_i:
@@ -135,9 +156,9 @@ def bmssp(level_l, bound_B, closed_S, bmssp_ws: bmssp_workspace):
                     ws.relax(node, neighbor, new_cost)
                     neighbor_key = ws.key(neighbor)
                     if bound_B_i <= neighbor_key < bound:                # [B_i, B) -> Insert
-                        if last_inserted_key.get(neighbor) != neighbor_key:
+                        if key_in_D.get(neighbor) != neighbor_key:
                             block_data_struct_D.insert(neighbor_key)
-                            last_inserted_key[neighbor] = neighbor_key
+                            key_in_D[neighbor] = neighbor_key
                     elif bound_B_prime_i <= neighbor_key < bound_B_i:    # [B'_i, B_i) -> K
                         relaxation_group_K.add(neighbor)
 
@@ -145,18 +166,26 @@ def bmssp(level_l, bound_B, closed_S, bmssp_ws: bmssp_workspace):
         # keys are rebuilt here because a node may be relaxed several times in one
         # iteration, and only its latest key is valid
         nodes_to_prepend = relaxation_group_K | pulled_nodes_S_i
-        block_data_struct_D.batch_prepend({
+        keys_to_prepend = {
             ws.key(node) for node in nodes_to_prepend
             if bound_B_prime_i <= ws.key(node) < bound_B_i
-        })
+        }
+        block_data_struct_D.batch_prepend(keys_to_prepend)
+        for key in keys_to_prepend:
+            key_in_D[key[2]] = key
+        if ws.recorder:
+            ws.recorder.frame(f"Relax edges out of U_i; batch prepend: {format_nodes(k[2] for k in keys_to_prepend)}",
+                              active=resolved_U_i)
 
     # after the loop: B' = min(last B'_i, B); add the nodes of W below B'
     bound_B_prime = min(last_bound_B_prime, bound)
     resolved_below_bound_U |= {node for node in encountered_nodes_W if ws.key(node) < bound_B_prime}
+    if ws.recorder:
+        ws.recorder.exit_call(level_l, closed_S, bound_B_prime, resolved_below_bound_U)
     return bound_B_prime, resolved_below_bound_U
 
 
-def bmssp_shortest_paths(graph, source):
+def bmssp_shortest_paths(graph, source, visualization_path=None):
     '''
     Single-source shortest paths with BMSSP, using the paper's top-level call:
     l = ceil(log2(n) / t), S = {source}, B = infinity.
@@ -166,6 +195,12 @@ def bmssp_shortest_paths(graph, source):
     The paper's setting is a directed graph with non-negative edge weights.
     An undirected graph also works (each edge counts in both directions).
     Missing weights default to 1, as elsewhere in this file.
+
+    visualization_path: if given, the run is recorded and written to this JSON
+    file for the Manim scene in visualization/bmssp_scene.py (format in
+    visualization/schema.py). Recording doesn't change the result. Meant for
+    small graphs (around 10-20 nodes); nodes may have a 'pos' attribute (x, y)
+    to control the layout, otherwise one is computed.
     '''
     for u, v, weight in graph.edges(data='weight', default=1):
         if weight < 0:
@@ -173,7 +208,18 @@ def bmssp_shortest_paths(graph, source):
     ws = bmssp_workspace(graph, source)
     n = len(graph.nodes)
     top_level = math.ceil(math.log2(n) / ws.t) if n > 1 else 0
+
+    if visualization_path is not None:
+        ws.recorder = BMSSPRecorder(ws)
+        ws.recorder.frame(f"Start: source {source}, k = {ws.k}, t = {ws.t}, top level l = {top_level}",
+                          active={source})
+
     bmssp(top_level, float('inf'), {source}, ws)
+
+    if ws.recorder:
+        ws.recorder.frame("Done: every reachable node is complete")
+        ws.recorder.write(visualization_path)
+        ws.recorder = None
     return ws.g_cost, ws.predecessors
 
 
@@ -290,6 +336,8 @@ def base_case(bound_B, closed_S, bmssp_ws: bmssp_workspace) -> tuple[float, set]
 
     # works whether closed_S is a list or a set
     start_node = next(iter(closed_S))
+    if bmssp_ws.recorder:
+        bmssp_ws.recorder.enter_call(0, bound_B, closed_S)
 
     # start from the node's existing (already final) cost, not 0.
     # heap entries are node keys (cost, hops, node), so ties pop in a fixed order
@@ -315,13 +363,17 @@ def base_case(bound_B, closed_S, bmssp_ws: bmssp_workspace) -> tuple[float, set]
                 heapq.heappush(bin_heap, bmssp_ws.key(neighbor))
 
     if len(settled) <= k:
-        return bound_B, settled
+        result = (bound_B, settled)
+    else:
+        # found more than k nodes: the new bound B' is the largest settled key,
+        # and only nodes strictly below it are returned. Keys are unique, so
+        # exactly one settled node (the largest) is left out.
+        new_bound = max(bmssp_ws.key(node) for node in settled)
+        result = (new_bound, {node for node in settled if bmssp_ws.key(node) < new_bound})
 
-    # found more than k nodes: the new bound B' is the largest settled key,
-    # and only nodes strictly below it are returned. Keys are unique, so
-    # exactly one settled node (the largest) is left out.
-    new_bound = max(bmssp_ws.key(node) for node in settled)
-    return new_bound, {node for node in settled if bmssp_ws.key(node) < new_bound}
+    if bmssp_ws.recorder:
+        bmssp_ws.recorder.exit_call(0, closed_S, *result)
+    return result
 
 # ---------------------------------------------------------------------------
 # base_case tests
@@ -929,6 +981,173 @@ def test_bmssp_inserts_and_prepends_respect_pull_bound():
     assert checked['insert'] > 0 and checked['prepend'] > 0, checked
 
 
+def test_bmssp_never_puts_duplicate_values_in_D():
+    # BlockHeap needs distinct values. A node can be relaxed to a different path
+    # with the same (cost, hops, node) key (equal cost and hops, smaller
+    # predecessor); if that key is already in D (inserted OR prepended), adding
+    # it again would store a duplicate. Checks every BlockHeap after each change.
+    import random
+    original_insert = BlockHeap.insert
+    original_prepend = BlockHeap.batch_prepend
+
+    def all_values(heap):
+        snap = heap.snapshot()
+        values = [v for _, _, items in snap['heap_blocks'] for v in items]
+        values += snap['b_block'][2]
+        values += [v for block in snap['prepend_blocks'] for v in block]
+        return values
+
+    def checked_insert(self, value):
+        original_insert(self, value)
+        values = all_values(self)
+        assert len(values) == len(set(values)), f"duplicate after insert of {value}"
+
+    def checked_prepend(self, values):
+        values = list(values)
+        original_prepend(self, values)
+        stored = all_values(self)
+        assert len(stored) == len(set(stored)), f"duplicate after batch_prepend of {values}"
+
+    BlockHeap.insert = checked_insert
+    BlockHeap.batch_prepend = checked_prepend
+    try:
+        rng = random.Random(7)
+        for _ in range(300):
+            # small weights -> many equal-cost, equal-hop paths
+            G = _random_weighted_graph(rng, n=rng.randint(5, 60), p=rng.choice([0.1, 0.2, 0.3]),
+                                       directed=True, max_weight=rng.choice([1, 2]))
+            _assert_matches_networkx(G, 0)
+        # the case found by the visualization: I is prepended, then relaxed again
+        # via E with the same cost and hops but a smaller predecessor than F
+        import os, sys
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualization"))
+        from make_bmssp_replay import sample_graph
+        _assert_matches_networkx(sample_graph(), "A")
+    finally:
+        BlockHeap.insert = original_insert
+        BlockHeap.batch_prepend = original_prepend
+
+
+# ---------------------------------------------------------------------------
+# visualization export (bmssp_shortest_paths(..., visualization_path=...))
+# ---------------------------------------------------------------------------
+
+def _load_replay(path):
+    # visualization/schema.py has no manim dependency, so it can be used here
+    import os, sys
+    vis_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualization")
+    if vis_dir not in sys.path:
+        sys.path.insert(0, vis_dir)
+    from schema import AlgorithmReplay
+    return AlgorithmReplay.load(path)
+
+
+def test_visualization_does_not_change_result():
+    import os, random, tempfile
+    rng = random.Random(8)
+    with tempfile.TemporaryDirectory() as tmp:
+        for trial in range(40):
+            G = _random_weighted_graph(rng, n=rng.randint(1, 25), p=0.2,
+                                       directed=rng.random() < 0.7, max_weight=rng.choice([1, 4]))
+            plain_cost, plain_pred = bmssp_shortest_paths(G, 0)
+            recorded_cost, recorded_pred = bmssp_shortest_paths(G, 0, visualization_path=os.path.join(tmp, f"{trial}.json"))
+            assert recorded_cost == plain_cost and recorded_pred == plain_pred
+
+
+def test_visualization_replay_matches_schema_and_result():
+    import os, random, tempfile
+    rng = random.Random(9)
+    with tempfile.TemporaryDirectory() as tmp:
+        for trial in range(30):
+            G = _random_weighted_graph(rng, n=rng.randint(2, 20), p=0.25, directed=True, max_weight=5)
+            path = os.path.join(tmp, f"{trial}.json")
+            cost, _ = bmssp_shortest_paths(G, 0, visualization_path=path)
+            replay = _load_replay(path)
+
+            assert replay.algorithm == "bmssp" and replay.graph.directed
+            assert {n.id for n in replay.graph.nodes} == {str(n) for n in G.nodes}
+            assert len(replay.graph.edges) == G.number_of_edges()
+            assert all(-1 <= n.x <= 1 and -1 <= n.y <= 1 for n in replay.graph.nodes)
+            assert len(replay.frames) >= 2
+
+            edge_ids = {(e.source, e.target) for e in replay.graph.edges}
+            for frame in replay.frames:
+                assert len(frame.graph_state.nodes) == len(G.nodes)
+                assert all((e.source, e.target) in edge_ids for e in frame.graph_state.edges)
+                if frame.block_state is not None:
+                    assert frame.block_state.b_block is not None
+
+            # last frame: every reachable node complete with its final cost
+            final = {ns.id: ns for ns in replay.frames[-1].graph_state.nodes}
+            for node in G.nodes:
+                if cost[node] == float('inf'):
+                    assert final[str(node)].state == "unexplored"
+                else:
+                    assert final[str(node)].state == "closed", (node, final[str(node)].state)
+                    assert final[str(node)].label_extra == f"d={cost[node]}"
+
+
+def test_visualization_records_block_structure_and_calls():
+    import os, tempfile, sys
+    vis_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualization")
+    sys.path.insert(0, vis_dir)
+    from make_bmssp_replay import sample_graph
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "sample.json")
+        bmssp_shortest_paths(sample_graph(), "A", visualization_path=path)
+        replay = _load_replay(path)
+    stacks = [f.call_stack for f in replay.frames]
+    assert max(len(s) for s in stacks) == 3                       # level 2 -> level 1 -> base case
+    assert any(s and s[-1].startswith("BaseCase") for s in stacks)
+    states = [f.block_state for f in replay.frames if f.block_state]
+    assert any(b.prepend_blocks for b in states)                  # BatchPrepend shows up
+    assert any(len(blk.items) > 1 for b in states for blk in b.heap_blocks)
+    assert any(item.stale for b in states for blk in b.heap_blocks + [b.b_block] for item in blk.items)
+    assert any(item.highlight for b in states for blk in b.heap_blocks + [b.b_block] for item in blk.items)
+
+
+def test_visualization_large_example_has_three_sizes_of_D():
+    # the 26-node example runs at level 3, so D comes in three sizes:
+    # M = 2^((l-1)t) = 16, 4 and 1; level 3's D0 gets blocks of up to 8
+    import os, tempfile, sys
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "visualization"))
+    from make_bmssp_replay import large_sample_graph
+    G = large_sample_graph()
+    assert len(G) == 26
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "large.json")
+        cost, _ = bmssp_shortest_paths(G, "A", visualization_path=path)
+        replay = _load_replay(path)
+    assert cost == {**{n: float('inf') for n in G}, **nx.single_source_dijkstra_path_length(G, "A")}
+    titles = {f.block_state.title.split(",")[0] for f in replay.frames if f.block_state}
+    assert titles == {"D at level 3: M = 16", "D at level 2: M = 4", "D at level 1: M = 1"}
+    level3 = [f.block_state for f in replay.frames
+              if f.block_state and f.block_state.title.startswith("D at level 3")]
+    assert max(len(b.items) for s in level3 for b in s.prepend_blocks) == 8
+
+
+def test_visualization_undirected_graph_lists_each_edge_once():
+    import os, tempfile
+    G = _path_graph()
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "undirected.json")
+        bmssp_shortest_paths(G, 0, visualization_path=path)
+        replay = _load_replay(path)
+    assert replay.graph.directed is False
+    assert len(replay.graph.edges) == 3
+    # relaxing 1 -> 0 direction of an undirected edge still highlights the listed edge
+    edge_ids = {(e.source, e.target) for e in replay.graph.edges}
+    assert all((e.source, e.target) in edge_ids for f in replay.frames for e in f.graph_state.edges)
+
+
+def test_no_visualization_file_without_path():
+    import os, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        before = set(os.listdir(tmp))
+        bmssp_shortest_paths(_path_graph(), 0)
+        assert set(os.listdir(tmp)) == before
+
+
 def test_bmssp_one_level_returns_consistent_bound_and_set():
     # a single level-1 call with a small k and t can stop early (|U| limit), so it
     # may return B' < B. Whatever it returns, U must be exactly the nodes whose key
@@ -1032,7 +1251,16 @@ if __name__ == "__main__":
     test_bmssp_zero_weight_cycle()
     test_bmssp_rejects_negative_weights()
     test_bmssp_inserts_and_prepends_respect_pull_bound()
+    test_bmssp_never_puts_duplicate_values_in_D()
     test_bmssp_one_level_returns_consistent_bound_and_set()
     test_bmssp_one_level_stops_early_on_long_path()
+
+    # visualization export
+    test_visualization_does_not_change_result()
+    test_visualization_replay_matches_schema_and_result()
+    test_visualization_records_block_structure_and_calls()
+    test_visualization_large_example_has_three_sizes_of_D()
+    test_visualization_undirected_graph_lists_each_edge_once()
+    test_no_visualization_file_without_path()
 
     print("All tests passed")

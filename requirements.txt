@@ -1,0 +1,5 @@
+# Solver (unsorted_search.py, block_data_struct.py, bmssp_recorder.py)
+networkx>=3.7
+
+# Visualization only (visualization/*.py); also needs FFmpeg, see README.md
+manim>=0.22.1

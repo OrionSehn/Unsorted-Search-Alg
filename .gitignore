@@ -2,3 +2,4 @@
 *.mp4
 /visualization/media
 *__pycache__/
+/visualization/stills
