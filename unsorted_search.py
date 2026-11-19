@@ -76,11 +76,105 @@ def as_bound(bound_B):
     return bound_B if isinstance(bound_B, tuple) else (bound_B,)
 
 def bmssp(level_l, bound_B, closed_S, bmssp_ws: bmssp_workspace):
-    # Base case:
+    '''
+    BMSSP(l, B, S) from Duan et al. (Algorithm 3).
+    Returns (B', U): a new bound B' <= B, and the set U of nodes whose shortest
+    path costs are now final and below B'.
+    Bounds are node keys (cost, hops, node) or (B,); see as_bound.
+    '''
+    # line 6: base case
     if level_l == 0:
         return base_case(bound_B, closed_S, bmssp_ws)
 
+    ws = bmssp_ws
+    bound = as_bound(bound_B)
 
+    # line 8: find the pivot nodes P and the encountered nodes W
+    pivot_set_P, encountered_nodes_W = find_pivots(bound_B, closed_S, ws)
+
+    # line 9-10: block data structure D with M = 2^((l-1)t), holding the pivots' keys
+    block_data_struct_D = BlockHeap(
+        m_limit=2 ** ((level_l - 1) * ws.t),
+        bound_B=bound,
+    )
+    # the key last inserted into D for each node; guards against inserting the
+    # same key twice, which the block heap does not allow (it needs distinct values)
+    last_inserted_key = {}
+    for node in pivot_set_P:
+        block_data_struct_D.insert(ws.key(node))
+        last_inserted_key[node] = ws.key(node)
+
+    # line 11: B'_0 = smallest pivot key, or B if there are no pivots
+    last_bound_B_prime = min((ws.key(node) for node in pivot_set_P), default=bound)
+    resolved_below_bound_U = set()
+    max_resolved = ws.k * 2 ** (level_l * ws.t)
+
+    # line 12
+    while len(resolved_below_bound_U) < max_resolved and not block_data_struct_D.is_empty():
+        # line 14: pull the smallest M keys and the bound B_i separating them from the rest.
+        # D can still hold an outdated key for a node whose cost improved after it
+        # was inserted (the paper's Insert replaces it; the block heap does not), so
+        # keep only keys that are still the node's current key
+        bound_B_i, pulled_keys = block_data_struct_D.pull()
+        pulled_nodes_S_i = {key[2] for key in pulled_keys if key == ws.key(key[2])}
+
+        # line 15-16: recurse on the pulled nodes
+        if pulled_nodes_S_i:
+            bound_B_prime_i, resolved_U_i = bmssp(level_l - 1, bound_B_i, pulled_nodes_S_i, ws)
+        else:
+            bound_B_prime_i, resolved_U_i = bound_B_i, set()
+        resolved_below_bound_U |= resolved_U_i
+        last_bound_B_prime = bound_B_prime_i
+
+        # line 17-24: relax edges out of the newly resolved nodes
+        relaxation_group_K = set()
+        for node in resolved_U_i:
+            for neighbor in ws.graph.neighbors(node):
+                new_cost = ws.g_cost[node] + ws.graph[node][neighbor].get('weight', 1)
+                if ws.is_valid_relaxation(node, neighbor, new_cost):   # '<=' with tie-break
+                    ws.relax(node, neighbor, new_cost)
+                    neighbor_key = ws.key(neighbor)
+                    if bound_B_i <= neighbor_key < bound:                # [B_i, B) -> Insert
+                        if last_inserted_key.get(neighbor) != neighbor_key:
+                            block_data_struct_D.insert(neighbor_key)
+                            last_inserted_key[neighbor] = neighbor_key
+                    elif bound_B_prime_i <= neighbor_key < bound_B_i:    # [B'_i, B_i) -> K
+                        relaxation_group_K.add(neighbor)
+
+        # line 25: batch prepend K, plus the pulled nodes that were not resolved.
+        # keys are rebuilt here because a node may be relaxed several times in one
+        # iteration, and only its latest key is valid
+        nodes_to_prepend = relaxation_group_K | pulled_nodes_S_i
+        block_data_struct_D.batch_prepend({
+            ws.key(node) for node in nodes_to_prepend
+            if bound_B_prime_i <= ws.key(node) < bound_B_i
+        })
+
+    # after the loop: B' = min(last B'_i, B); add the nodes of W below B'
+    bound_B_prime = min(last_bound_B_prime, bound)
+    resolved_below_bound_U |= {node for node in encountered_nodes_W if ws.key(node) < bound_B_prime}
+    return bound_B_prime, resolved_below_bound_U
+
+
+def bmssp_shortest_paths(graph, source):
+    '''
+    Single-source shortest paths with BMSSP, using the paper's top-level call:
+    l = ceil(log2(n) / t), S = {source}, B = infinity.
+    Returns (g_cost, predecessors): {node: cost} (inf if unreachable) and
+    {node: predecessor on its shortest path} (the source has none).
+
+    The paper's setting is a directed graph with non-negative edge weights.
+    An undirected graph also works (each edge counts in both directions).
+    Missing weights default to 1, as elsewhere in this file.
+    '''
+    for u, v, weight in graph.edges(data='weight', default=1):
+        if weight < 0:
+            raise ValueError(f"edge ({u}, {v}) has negative weight {weight}; BMSSP needs non-negative weights")
+    ws = bmssp_workspace(graph, source)
+    n = len(graph.nodes)
+    top_level = math.ceil(math.log2(n) / ws.t) if n > 1 else 0
+    bmssp(top_level, float('inf'), {source}, ws)
+    return ws.g_cost, ws.predecessors
 
 
 def find_pivots(bound_B, closed_S, bmssp_ws: bmssp_workspace) -> tuple[set, set]:
@@ -137,7 +231,8 @@ def build_shortest_path_forest(nodes_W, bmssp_ws: bmssp_workspace) -> dict:
     (as the paper states under Assumption 2.1).
 
     Returned as a {child: parent} dict. Nodes with no parent are roots.
-    Assumes positive edge weights.
+    Works with non-negative edge weights, including 0: each parent has one
+    hop fewer than its child, so following parents can never loop.
     '''
     graph = bmssp_ws.graph
     g_cost = bmssp_ws.g_cost
@@ -177,10 +272,6 @@ def find_large_tree_roots(forest_parent: dict, candidate_roots, k) -> set:
         if tree_size >= k:
             large_roots.add(root)
     return large_roots
-
-
-
-
 
 
 
@@ -609,6 +700,267 @@ def test_find_pivots_improves_costs():
     assert pivots == {0}  # tree 0 -> 1 -> 2 has 3 vertices >= k
 
 
+# ---------------------------------------------------------------------------
+# bmssp tests, checked against networkx's Dijkstra
+# ---------------------------------------------------------------------------
+
+def _random_weighted_graph(rng, n, p, directed, max_weight):
+    G = nx.gnp_random_graph(n, p, seed=rng.randint(0, 10**9), directed=directed)
+    for u, v in G.edges:
+        G[u][v]['weight'] = rng.randint(1, max_weight)
+    return G
+
+
+def _assert_matches_networkx(G, source):
+    '''
+    Runs bmssp_shortest_paths and checks it against networkx:
+      - reachable nodes get exactly networkx's shortest-path cost
+      - unreachable nodes stay at inf
+      - every predecessor edge is tight, and following predecessors from any
+        reachable node leads back to the source
+    '''
+    cost, pred = bmssp_shortest_paths(G, source)
+    true = nx.single_source_dijkstra_path_length(G, source)
+
+    for node in G.nodes:
+        if node in true:
+            assert cost[node] == true[node], (node, cost[node], true[node])
+        else:
+            assert cost[node] == float('inf'), (node, cost[node])
+
+    for node in true:
+        if node == source:
+            continue
+        parent = pred[node]
+        assert cost[node] == cost[parent] + G[parent][node].get('weight', 1), node
+        # walk back to the source (at most n steps, so a cycle would be caught)
+        current, steps = node, 0
+        while current != source:
+            current = pred[current]
+            steps += 1
+            assert steps <= len(G), f"predecessor cycle from {node}"
+
+
+def test_bmssp_path_graph():
+    _assert_matches_networkx(_path_graph(), 0)
+
+
+def test_bmssp_single_node():
+    G = nx.Graph()
+    G.add_node(0)
+    cost, pred = bmssp_shortest_paths(G, 0)
+    assert cost == {0: 0}
+    assert pred == {}
+
+
+def test_bmssp_two_nodes():
+    G = nx.Graph()
+    G.add_edge(0, 1, weight=4)
+    _assert_matches_networkx(G, 0)
+
+
+def test_bmssp_picks_cheaper_route():
+    # 0->2 directly costs 5, but 0->1->3->2 costs 3
+    G = nx.Graph()
+    G.add_edge(0, 1, weight=1)
+    G.add_edge(1, 3, weight=1)
+    G.add_edge(3, 2, weight=1)
+    G.add_edge(0, 2, weight=5)
+    _assert_matches_networkx(G, 0)
+
+
+def test_bmssp_unreachable_nodes_stay_inf():
+    G = _path_graph()
+    G.add_edge(50, 51, weight=1)   # separate component
+    G.add_node(99)                 # isolated
+    _assert_matches_networkx(G, 0)
+    cost, _ = bmssp_shortest_paths(G, 0)
+    assert cost[50] == cost[51] == cost[99] == float('inf')
+
+
+def test_bmssp_directed_edges_followed_forwards_only():
+    G = nx.DiGraph()
+    G.add_edge(0, 1, weight=1)
+    G.add_edge(1, 2, weight=1)
+    G.add_edge(3, 2, weight=1)     # 3 is not reachable from 0
+    _assert_matches_networkx(G, 0)
+    cost, _ = bmssp_shortest_paths(G, 0)
+    assert cost[3] == float('inf')
+
+
+def test_bmssp_non_zero_source():
+    G = _path_graph()
+    _assert_matches_networkx(G, 2)
+
+
+def test_bmssp_ties_pick_smaller_predecessor():
+    # diamond: 0-1-3 and 0-2-3 both cost 2; the tie-break picks predecessor 1
+    G = nx.Graph()
+    for u, v in [(0, 1), (0, 2), (1, 3), (2, 3)]:
+        G.add_edge(u, v, weight=1)
+    cost, pred = bmssp_shortest_paths(G, 0)
+    assert cost[3] == 2
+    assert pred[3] == 1
+
+
+def test_bmssp_matches_networkx_random_small():
+    # many small graphs: undirected and directed, sparse and dense,
+    # weights from all-equal (lots of ties) to varied
+    import random
+    rng = random.Random(0)
+    for _ in range(400):
+        G = _random_weighted_graph(
+            rng,
+            n=rng.randint(1, 60),
+            p=rng.choice([0.05, 0.1, 0.2, 0.4]),
+            directed=rng.random() < 0.5,
+            max_weight=rng.choice([1, 3, 20]),
+        )
+        _assert_matches_networkx(G, 0)
+
+
+def test_bmssp_matches_networkx_random_large():
+    # larger graphs reach recursion level 3 and use batch_prepend heavily
+    import random
+    rng = random.Random(1)
+    for n in (200, 1000, 3000):
+        for directed in (False, True):
+            G = nx.gnm_random_graph(n, 4 * n, seed=rng.randint(0, 10**9), directed=directed)
+            for u, v in G.edges:
+                G[u][v]['weight'] = rng.randint(1, 10)
+            _assert_matches_networkx(G, 0)
+
+
+def test_bmssp_matches_networkx_on_grid():
+    # a grid has many equal-length shortest paths, which stresses the tie-break
+    G = nx.grid_2d_graph(20, 20)
+    G = nx.convert_node_labels_to_integers(G)   # node ids must be comparable
+    _assert_matches_networkx(G, 0)
+
+
+def test_bmssp_directed_with_zero_weights():
+    # non-negative includes 0: some, half, or all edges weigh 0
+    import random
+    rng = random.Random(5)
+    for trial in range(300):
+        G = nx.gnp_random_graph(rng.randint(1, 120), rng.choice([0.03, 0.08, 0.2]),
+                                seed=trial, directed=True)
+        zero_share = rng.choice([0.1, 0.5, 1.0])
+        for u, v in G.edges:
+            G[u][v]['weight'] = 0 if rng.random() < zero_share else rng.randint(1, 5)
+        _assert_matches_networkx(G, 0)
+
+
+def test_bmssp_zero_weight_cycle():
+    # 1 <-> 2 is a zero-weight cycle; it must not make predecessors loop
+    G = nx.DiGraph()
+    G.add_edge(0, 1, weight=1)
+    G.add_edge(1, 2, weight=0)
+    G.add_edge(2, 1, weight=0)
+    G.add_edge(2, 3, weight=2)
+    _assert_matches_networkx(G, 0)
+    cost, pred = bmssp_shortest_paths(G, 0)
+    assert cost == {0: 0, 1: 1, 2: 1, 3: 3}
+    assert pred[2] == 1 and pred[1] == 0
+
+
+def test_bmssp_rejects_negative_weights():
+    G = nx.DiGraph()
+    G.add_edge(0, 1, weight=2)
+    G.add_edge(1, 2, weight=-1)
+    try:
+        bmssp_shortest_paths(G, 0)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("expected ValueError for a negative weight")
+
+
+def test_bmssp_inserts_and_prepends_respect_pull_bound():
+    # Algorithm 3 lines 21-25: after a pull returns bound B_i, relaxed values in
+    # [B_i, B) go to D.Insert, and values below B_i go to D.BatchPrepend.
+    # Sending them the wrong way still gives correct distances (they all end up
+    # in D), so comparing with networkx can't catch it; this checks the rule
+    # directly by watching every BlockHeap that bmssp creates.
+    import random
+    original_pull = BlockHeap.pull
+    original_insert = BlockHeap.insert
+    original_prepend = BlockHeap.batch_prepend
+    checked = {'insert': 0, 'prepend': 0}
+
+    def watched_pull(self):
+        bound, items = original_pull(self)
+        self._last_pull_bound = bound
+        return bound, items
+
+    def watched_insert(self, value):
+        last_bound = getattr(self, '_last_pull_bound', None)
+        if last_bound is not None:   # inserts of the pivots happen before any pull
+            assert value >= last_bound, f"inserted {value} below pull bound {last_bound}"
+            checked['insert'] += 1
+        return original_insert(self, value)
+
+    def watched_prepend(self, values):
+        values = list(values)
+        last_bound = getattr(self, '_last_pull_bound', None)
+        assert last_bound is not None, "batch_prepend called before any pull"
+        for value in values:
+            assert value < last_bound, f"prepended {value} not below pull bound {last_bound}"
+            checked['prepend'] += 1
+        return original_prepend(self, values)
+
+    BlockHeap.pull = watched_pull
+    BlockHeap.insert = watched_insert
+    BlockHeap.batch_prepend = watched_prepend
+    try:
+        rng = random.Random(6)
+        for _ in range(60):
+            n = rng.randint(50, 800)
+            G = nx.gnm_random_graph(n, 4 * n, seed=rng.randint(0, 10**9), directed=True)
+            for u, v in G.edges:
+                G[u][v]['weight'] = rng.randint(0, 10)
+            _assert_matches_networkx(G, 0)
+    finally:
+        BlockHeap.pull = original_pull
+        BlockHeap.insert = original_insert
+        BlockHeap.batch_prepend = original_prepend
+
+    # make sure the rule was actually exercised, not skipped
+    assert checked['insert'] > 0 and checked['prepend'] > 0, checked
+
+
+def test_bmssp_one_level_returns_consistent_bound_and_set():
+    # a single level-1 call with a small k and t can stop early (|U| limit), so it
+    # may return B' < B. Whatever it returns, U must be exactly the nodes whose key
+    # is below B', and their costs must already be final
+    import random
+    rng = random.Random(2)
+    for _ in range(200):
+        G = _random_weighted_graph(rng, n=rng.randint(2, 80), p=0.1,
+                                   directed=rng.random() < 0.5, max_weight=5)
+        true = nx.single_source_dijkstra_path_length(G, 0)
+        ws = bmssp_workspace(G, 0)
+        bound = rng.choice([float('inf'), rng.randint(1, 30)])
+        bound_B_prime, resolved_U = bmssp(1, bound, {0}, ws)
+
+        assert bound_B_prime <= as_bound(bound)
+        for node in resolved_U:
+            assert ws.g_cost[node] == true[node], node
+        assert resolved_U == {node for node in true if ws.key(node) < bound_B_prime}
+
+
+def test_bmssp_one_level_stops_early_on_long_path():
+    # path of 100 nodes: at level 1 the loop stops once |U| reaches k * 2^t,
+    # so the returned bound is below B and U is a prefix of the path
+    G = nx.path_graph(100)
+    ws = bmssp_workspace(G, 0)
+    bound_B_prime, resolved_U = bmssp(1, float('inf'), {0}, ws)
+    assert bound_B_prime < as_bound(float('inf'))
+    assert 0 < len(resolved_U) < 100
+    assert resolved_U == set(range(len(resolved_U)))
+    assert all(ws.g_cost[node] == node for node in resolved_U)
+
+
 if __name__ == "__main__":
 
     # Base case tests
@@ -662,5 +1014,25 @@ if __name__ == "__main__":
 
 
 
+
+
+    # bmssp
+    test_bmssp_path_graph()
+    test_bmssp_single_node()
+    test_bmssp_two_nodes()
+    test_bmssp_picks_cheaper_route()
+    test_bmssp_unreachable_nodes_stay_inf()
+    test_bmssp_directed_edges_followed_forwards_only()
+    test_bmssp_non_zero_source()
+    test_bmssp_ties_pick_smaller_predecessor()
+    test_bmssp_matches_networkx_random_small()
+    test_bmssp_matches_networkx_random_large()
+    test_bmssp_matches_networkx_on_grid()
+    test_bmssp_directed_with_zero_weights()
+    test_bmssp_zero_weight_cycle()
+    test_bmssp_rejects_negative_weights()
+    test_bmssp_inserts_and_prepends_respect_pull_bound()
+    test_bmssp_one_level_returns_consistent_bound_and_set()
+    test_bmssp_one_level_stops_early_on_long_path()
 
     print("All tests passed")
